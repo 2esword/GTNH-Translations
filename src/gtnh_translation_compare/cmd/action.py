@@ -3,10 +3,11 @@ import datetime
 import glob
 import os
 import shutil
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 import re
 import subprocess
 from typing import Sequence, TypeAlias, Callable, Optional, Dict
+import zipfile
 
 from gtnh_translation_compare.utils.github_action import set_output
 import httpx
@@ -82,6 +83,61 @@ def _paratranz_error_message(error: ParaTranzUploadError) -> str:
         f"for {response.request.method} {response.request.url.path}; response: {body}"
     )
 
+def _find_paratranz_download_zip() -> Path:
+    """Find the single valid ParaTranz artifact ZIP beside main.py."""
+    directory = _main_py_directory()
+    candidates = sorted(
+        path
+        for path in directory.iterdir()
+        if path.is_file()
+        and path.suffix.lower() == ".zip"
+        and zipfile.is_zipfile(path)
+        and _looks_like_paratranz_download(path)
+    )
+
+    if not candidates:
+        raise FileNotFoundError(
+            f"No ParaTranz download ZIP found in {directory}. "
+            "Download the ParaTranz project artifact and place it beside main.py."
+        )
+    if len(candidates) > 1:
+        names = ", ".join(path.name for path in candidates)
+        raise RuntimeError(
+            f"Found multiple ParaTranz download ZIPs beside main.py: {names}. "
+            "Leave only the intended ParaTranz project download in that directory."
+        )
+    return candidates[0]
+
+def _main_py_directory() -> Path:
+    """Return the repository directory containing main.py."""
+    action_path = Path(__file__).resolve()
+    for directory in (action_path.parent, *action_path.parents):
+        if (directory / "main.py").is_file():
+            return directory
+    raise FileNotFoundError(
+        f"Could not locate main.py above {action_path}; the ParaTranz download ZIP "
+        "must be placed beside main.py."
+    )
+
+def _looks_like_paratranz_download(zip_path: Path) -> bool:
+    """Return whether a ZIP contains only raw, tmx, and utf8 directories at its root."""
+    expected = {"raw", "tmx", "utf8"}
+    try:
+        with zipfile.ZipFile(zip_path) as archive:
+            top_level = set()
+            for name in archive.namelist():
+                if not name: continue
+                path = name.rstrip("/")
+                
+                if "/" not in path:
+                    if not name.endswith("/"):
+                        return False
+                    top_level.add(path)
+                else:
+                    top_level.add(path.split("/", 1)[0])
+            return top_level == expected
+    except (OSError, zipfile.BadZipFile, ValueError):
+        return False
 
 class Action:
     def __init__(self) -> None:
@@ -228,6 +284,15 @@ class Action:
         subdirectory: str = ".",
     ) -> None:
         asyncio.run(self._sync_from_paratranz(Path(repo_path), Path(subdirectory)))
+
+    def sync_from_paratranz_download(
+            self,
+            repo_path: str = ".",
+            subdirectory: str = ".",
+        ) -> None:
+            """Sync a previously downloaded ParaTranz project artifact without using the API."""
+            zip_path = _find_paratranz_download_zip()
+            print("Zip file found at: ", zip_path)
 
     # Quest Book
     async def _paratranz_to_quest_book(
