@@ -91,6 +91,7 @@ In order to run it,
 1. Install Python (>= 3.11.0)
 2. Install Poetry
 3. Set environmental variables `PARATRANZ_TOKEN`, `PARATRANZ_PROJECT_ID`, and `TARGET_LANG`
+> **Tip:** On Windows PowerShell, you can easily set an environment variable for the current session with `$env:TARGET_LANG="pt_BR"`. Repeat this for the other variables as needed.
 4. Run `poetry install`
 5. Run `poetry run python main.py action <your favorite action>`
 
